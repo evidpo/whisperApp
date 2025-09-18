@@ -1,0 +1,24 @@
+# Xcode
+.build/
+build/
+DerivedData/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# whisper.cpp 
+whisper.cpp/
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+
+# AI модели
+*.bin
+*.gguf
+models/
+
+# Логи и временные файлы
+*.log
+*.tmp
+*.temp

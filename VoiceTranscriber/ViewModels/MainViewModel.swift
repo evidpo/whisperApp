@@ -1,6 +1,6 @@
 import SwiftUI
-import Foundation
 import Combine
+import AVFoundation
 
 class MainViewModel: ObservableObject {
     @Published var recordingState: RecordingState = .idle
@@ -9,22 +9,19 @@ class MainViewModel: ObservableObject {
     
     // Менеджеры
     private let audioManager: AudioManager
-    // WhisperManager будет использоваться для транскрибации аудио
-    // private let whisperManager: WhisperManager
-    
-    enum RecordingState {
-        case idle
-        case recording
-        case processing
-        case completed
-        case error
-    }
+    private let whisperManager: WhisperManager
+    private let hotKeyManager: HotKeyManager
+    private let systemIntegrationManager: SystemIntegrationManager
+    private let settings: AppSettings
     
     private var cancellables = Set<AnyCancellable>()
     
-    init() {
-        audioManager = AudioManager()
-        // whisperManager = WhisperManager() - будет инициализирован при необходимости
+    init(settings: AppSettings = AppSettings()) {
+        self.settings = settings
+        self.audioManager = AudioManager()
+        self.whisperManager = WhisperManager()
+        self.hotKeyManager = HotKeyManager()
+        self.systemIntegrationManager = SystemIntegrationManager()
         
         // Подписываемся на изменения уровня записи в AudioManager
         audioManager.$audioLevel
@@ -41,6 +38,7 @@ class MainViewModel: ObservableObject {
                 DispatchQueue.main.async {
                     self?.recordingState = isRecording ? .recording : .idle
                 }
+            }
             .store(in: &cancellables)
     }
     
@@ -67,50 +65,79 @@ class MainViewModel: ObservableObject {
         // Останавливаем запись в AudioManager
         audioManager.stopRecording()
         
-        // Здесь будет вызов whisperManager для транскрибации
-        // Пример использования WhisperManager:
-        /*
-        DispatchQueue.global(qos: .background).async { [weak self] in
-            guard let self = self else { return }
-            
-            let whisperManager = WhisperManager()
-            
-            // В реальной реализации здесь будет путь к реальной модели
-            let modelPath = "path/to/whisper/model.bin"
+        // Получаем путь к последнему записанному файлу
+        if let lastRecordingPath = audioManager.getLastRecordingPath() {
+            // Инициализируем whisper с выбранной моделью
+            let modelPath = getModelPath()
             let initializationResult = whisperManager.initializeWhisper(modelPath: modelPath)
             
-            DispatchQueue.main.async {
-                if initializationResult {
-                    print("Whisper.cpp initialized successfully")
-                    // В реальной реализации здесь будет путь к реальному аудио файлу
-                    let audioPath = "path/to/audio/file.wav"
-                    let transcriptionResult = whisperManager.transcribeAudio(audioPath: audioPath)
+            if initializationResult {
+                print("Whisper.cpp initialized successfully")
+                
+                // Выполняем транскрибацию в фоновом потоке
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    guard let self = self else { return }
                     
-                    if let transcription = transcriptionResult {
-                        self.transcriptionText = transcription
-                        self.recordingState = .completed
-                    } else {
-                        self.recordingState = .error
+                    let transcriptionResult = whisperManager.transcribeAudio(audioPath: lastRecordingPath)
+                    
+                    DispatchQueue.main.async {
+                        if let transcription = transcriptionResult {
+                            self.transcriptionText = transcription
+                            self.recordingState = .completed
+                            
+                            // Если включена автовставка, вставляем текст в активное приложение
+                            if self.settings.autoInsertText {
+                                self.systemIntegrationManager.insertTextToActiveApp(text: transcription)
+                            }
+                        } else {
+                            self.recordingState = .error("Failed to transcribe audio")
+                        }
                     }
-                } else {
-                    self.recordingState = .error
                 }
+            } else {
+                recordingState = .error("Failed to initialize Whisper model")
             }
+        } else {
+            recordingState = .error("No recording file found")
         }
-        */
     }
     
     func copyToClipboard() {
-        // Копирование текста в буфер обмена
-        #if os(iOS)
-        if let pasteboard = UIPasteboard.general {
-            pasteboard.string = transcriptionText
-        }
-        #endif
+        systemIntegrationManager.copyToClipboard(text: transcriptionText)
     }
     
     func clearTranscription() {
-        // Очистка транскрибированного текста
         transcriptionText = ""
+    }
+    
+    func setupHotKey() {
+        // Настройка горячей клавиши для переключения записи
+        // Комбинация по умолчанию: ⌘⇧Пробел
+        hotKeyManager.registerHotKey(UInt16(kVK_Space), modifiers: UInt32(cmdKey | shiftKey)) { [weak self] in
+            self?.toggleRecording()
+        }
+    }
+    
+    private func getModelPath() -> String {
+        // Возвращаем путь к выбранной модели
+        // В реальной реализации нужно реализовать загрузку и хранение моделей
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let modelName = settings.modelSize
+        let modelFileName = "ggml-\(modelName).bin"
+        return documentsPath.appendingPathComponent("whisper-models").appendingPathComponent(modelFileName).path
+    }
+}
+
+// MARK: - Extensions
+extension MainViewModel {
+    func requestMicrophonePermission() async -> Bool {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            return true
+        case .notDetermined:
+            return await AVCaptureDevice.requestAccess(for: .audio)
+        default:
+            return false
+        }
     }
 }

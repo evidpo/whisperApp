@@ -9,6 +9,7 @@ class AudioManager: ObservableObject {
     private var audioFile: AVAudioFile?
     private var recordingSession: AVAudioSession?
     private var timer: Timer?
+    private var lastRecordingPath: URL?
     
     enum AudioManagerError: Error {
         case permissionDenied
@@ -71,6 +72,9 @@ class AudioManager: ObservableObject {
             let fileName = "recording_\(Date().timeIntervalSince1970).wav"
             let fileURL = documentsPath.appendingPathComponent(fileName)
             
+            // Store the recording path for later use
+            lastRecordingPath = fileURL
+            
             // Create audio file
             audioFile = try AVAudioFile(forWriting: fileURL, 
                                       settings: desiredFormat.settings)
@@ -94,7 +98,7 @@ class AudioManager: ObservableObject {
             try audioEngine?.start()
             
             isRecording = true
-            print("Recording started")
+            print("Recording started: \(fileURL.path)")
             
         } catch {
             print("Failed to start recording: \(error)")
@@ -105,11 +109,15 @@ class AudioManager: ObservableObject {
     func stopRecording() {
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
-        audioEngine = nil
         audioFile = nil
+        audioEngine = nil
         isRecording = false
         audioLevel = 0.0
         print("Recording stopped")
+    }
+    
+    func getLastRecordingPath() -> String? {
+        return lastRecordingPath?.path
     }
     
     private func calculateAudioLevel(buffer: AVAudioPCMBuffer) -> Float {

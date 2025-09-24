@@ -22,3 +22,27 @@ models/
 *.log
 *.tmp
 *.temp
+VoiceTranscriber/.build/
+-e 
+# Build files
+.build/
+DerivedData/
+*.build/
+build/
+*.app
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Swift Package Manager
+.Package.resolved
+.build/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Models
+ggml-*.bin
+models/
+whisper-models/
